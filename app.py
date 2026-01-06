@@ -19,7 +19,7 @@ def load_model():
   model = AutoModel.from_pretrained(MODEL_NAME)
   device = "cuda" if torch.cuda.is_available() else "cpu"
   model = model.to(device)
-  print(f"Modle loaded on {device}")
+  print(f"Model loaded on {device}")
 
 def get_query_embedding(query_text):
   formatted_text = f"query: {query_text}"

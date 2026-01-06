@@ -3,7 +3,8 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 import numpy as np
 
-MODEL_NAME = "intfloat/e5-mistral-7b-instruct"
+# 수정 1: 임베딩 전용 모델로 교체 (가볍고 안정적)
+MODEL_NAME = "jhgan/ko-sroberta-multitask"
 
 def load_model():
   print(f"Loading model: {MODEL_NAME}")
@@ -12,23 +13,41 @@ def load_model():
 
   device = "cuda" if torch.cuda.is_available() else "cpu"
   model = model.to(device)
+  model.eval()  # evaluation 모드 (추론 전용)
   print(f"Model loaded on {device}")
 
   return tokenizer, model, device
 
 def get_embedding(text, tokenizer, model, device):
-  formatted_text = f"passage: {text}"
+  # ko-sroberta는 prefix 불필요
+  formatted_text = text
 
-  inputs = tokenizer(formatted_text, return_tensors="pt", padding=True,
-  truncation=True, max_length=512)
+  inputs = tokenizer(
+    formatted_text,
+    return_tensors="pt",
+    padding=True,
+    truncation=True,
+    max_length=512
+  )
 
   inputs = {k: v.to(device) for k, v in inputs.items()}
 
   with torch.no_grad():
     outputs = model(**inputs)
-    embedding = outputs.last_hidden_state[:, 0, :].cpu().numpy()
 
-  return embedding[0]
+    # 기존 방식 (CLS pooling) 제거
+    # embedding = outputs.last_hidden_state[:, 0, :]
+
+    # 수정 3: mean pooling + attention mask (E5 권장 방식)
+    token_embeddings = outputs.last_hidden_state
+    attention_mask = inputs["attention_mask"].unsqueeze(-1)
+
+    embedding = (token_embeddings * attention_mask).sum(dim=1) / attention_mask.sum(dim=1)
+
+  emb = embedding.cpu().numpy()[0]
+  emb = emb / (np.linalg.norm(emb) + 1e-12)
+
+  return emb
 
 def load_graph_data(file_path):
   with open(file_path, 'r', encoding='utf-8') as f:
@@ -39,7 +58,7 @@ def create_node_text(node):
   parts = []
 
   if node.get('label'):
-    parts.append(f"Label: {node['label']}")
+    parts.append(f"Label: {node['label']}는 다음 의미이다.")
   if node.get('subtitle_kr'):
     parts.append(f"한글: {node['subtitle_kr']}")
   if node.get('subtitle_hanja'):
@@ -80,11 +99,11 @@ def generate_all_embeddings(input_file, output_file):
     if (i + 1) % 10 == 0:
       print(f"Processed {i + 1} / {len(nodes)} nodes")
 
-  print(f"\nSaving embeddings to {output_file}")
+    # print(f"\nSaving embeddings to {output_file}")
   with open(output_file, 'w', encoding='utf-8') as f:
     json.dump(embeddings_data, f, ensure_ascii=False, indent=2)
 
-  print(f"Done")
+  print("Done")
 
 if __name__ == "__main__":
-  generate_all_embeddings('graph_data.json', 'embeddings.json')
+  generate_all_embeddings("graph_data.json", "embeddings.json")

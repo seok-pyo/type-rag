@@ -8,7 +8,7 @@ import numpy as np
 app = Flask(__name__)
 CORS(app)
 
-MODEL_NAME = "intfloat/e5-mistral-7b-instruct"
+MODEL_NAME = "jhgan/ko-sroberta-multitask"
 tokenizer = None
 model = None
 device = None
@@ -19,10 +19,12 @@ def load_model():
   model = AutoModel.from_pretrained(MODEL_NAME)
   device = "cuda" if torch.cuda.is_available() else "cpu"
   model = model.to(device)
+  model.eval()
   print(f"Model loaded on {device}")
 
 def get_query_embedding(query_text):
-  formatted_text = f"query: {query_text}"
+  # ko-sroberta는 prefix 불필요
+  formatted_text = query_text
 
   inputs = tokenizer(formatted_text, return_tensors="pt",
     padding=True, truncation=True, max_length=512)
@@ -30,9 +32,15 @@ def get_query_embedding(query_text):
 
   with torch.no_grad():
     outputs = model(**inputs)
-    embedding = outputs.last_hidden_state[:, 0, :].cpu().numpy()
 
-  return embedding[0].tolist()
+    # Mean pooling with attention mask
+    token_embeddings = outputs.last_hidden_state
+    attention_mask = inputs["attention_mask"].unsqueeze(-1)
+    embedding = (token_embeddings * attention_mask).sum(dim=1) / attention_mask.sum(dim=1)
+
+  emb = embedding.cpu().numpy()[0]
+  emb = emb/(np.linalg.norm(emb) + 1e-12)
+  return emb.tolist()
 
 @app.route('/embed', methods=['POST'])
 def embed_query():

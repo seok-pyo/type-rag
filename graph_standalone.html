@@ -173,6 +173,24 @@
         background: rgba(0, 0, 0, 0.1);
       }
 
+      /* RAG 검색 패널 */
+      #rag-panel {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: rgba(255, 255, 255, 0.98);
+        border-top: 2px solid #000;
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+        max-height: 400px;
+        transition: max-height 0.3s ease;
+      }
+
+      #rag-panel.minimized {
+        max-height: 50px;
+      }
+
       #rag-header {
         display: flex;
         justify-content: space-between;
@@ -330,12 +348,12 @@
       </div>
 
       <div id="rag-content">
-        <div id="serach-box">
+        <div id="search-box">
           <input type="text" id="rag-query" placeholder="질문을 입력해보세요" />
           <button id="search-btn">검색</button>
         </div>
 
-        <div id="serach-status"></div>
+        <div id="search-status"></div>
 
         <div id="search-results"></div>
       </div>
@@ -18582,6 +18600,139 @@
         d.fx = null;
         d.fy = null;
       }
+
+      let embeddingsData = [];
+
+      async function loadEmbeddings() {
+        try {
+          const response = await fetch("embeddings.json");
+          embeddingsData = await response.json();
+          console.log(`Loaded ${embeddingsData.length} embeddings`);
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      loadEmbeddings();
+
+      function cosineSimilarity(vecA, vecB) {
+        let dotProduct = 0;
+        let normA = 0;
+        let normB = 0;
+
+        for (let i = 0; i < vecA.length; i++) {
+          dotProduct += vecA[i] * vecB[i];
+          normA += vecA[i] * vecA[i];
+          normB += vecB[i] * vecB[i];
+        }
+
+        return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+      }
+
+      async function performSearch() {
+        const query = document.getElementById("rag-query").value.trim();
+        const statusDiv = document.getElementById("search-status");
+        const resultsDiv = document.getElementById("search-results");
+        const searchBtn = document.getElementById("search-btn");
+
+        if (!query) {
+          statusDiv.textContent = "질문을 입력해주세요";
+          return;
+        }
+
+        searchBtn.disabled = true;
+        statusDiv.textContent = "검색 중...";
+        resultsDiv.innerHTML = "";
+
+        try {
+          const response = await fetch("http://localhost:8000/embed", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ query: query }),
+          });
+
+          const data = await response.json();
+
+          if (data.error) {
+            throw new Error(data.error);
+          }
+
+          const queryEmbedding = data.embedding;
+
+          const results = embeddingsData.map((item) => ({
+            ...item,
+            similarity: cosineSimilarity(queryEmbedding, item.embedding),
+          }));
+
+          results.sort((a, b) => b.similarity - a.similarity);
+
+          const topResults = results.slice(0, 5);
+          displayResults(topResults);
+
+          statusDiv.textContent = `${topResults.length}개의 결과를 찾았습니다.`;
+        } catch (error) {
+          statusDiv.textContent = `오류: ${error.message}`;
+          console.error("Search error:", error);
+        } finally {
+          searchBtn.disabled = false;
+        }
+      }
+
+      function displayResults(results) {
+        const resultsDiv = document.getElementById("search-results");
+        resultsDiv.innerHTML = "";
+
+        results.forEach((result, index) => {
+          const resultItem = document.createElement("div");
+          resultItem.className = "result-item";
+
+          resultItem.innerHTML = `
+            <div class="result-label">${index + 1}. ${result.label}</div>
+            <div class="result-similarity">유사도: ${(
+              result.similarity * 100
+            ).toFixed(2)}%</div>
+            <div class="result-text">${result.text}</div>
+          `;
+
+          resultItem.addEventListener("click", () => {
+            selectNodeById(result.id);
+          });
+
+          resultsDiv.appendChild(resultItem);
+        });
+      }
+
+      function selectNodeById(nodeId) {
+        const node = data.nodes.find((n) => n.id === nodeId);
+        if (node) {
+          selectNode(node);
+        }
+      }
+
+      document
+        .getElementById("search-btn")
+        .addEventListener("click", performSearch);
+
+      document.getElementById("rag-query").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+          performSearch();
+        }
+      });
+
+      document.getElementById("toggle-rag").addEventListener("click", () => {
+        const panel = document.getElementById("rag-panel");
+        const btn = document.getElementById("toggle-rag");
+
+        if (panel.classList.contains("minimized")) {
+          panel.classList.remove("minimized");
+          btn.textContent = "최소화";
+        } else {
+          panel.classList.add("minimized");
+          btn.textContent = "확장";
+        }
+      });
     </script>
   </body>
 </html>

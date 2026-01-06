@@ -1,3 +1,4 @@
+import ollama
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
@@ -23,7 +24,6 @@ def load_model():
   print(f"Model loaded on {device}")
 
 def get_query_embedding(query_text):
-  # ko-sroberta는 prefix 불필요
   formatted_text = query_text
 
   inputs = tokenizer(formatted_text, return_tensors="pt",
@@ -32,8 +32,6 @@ def get_query_embedding(query_text):
 
   with torch.no_grad():
     outputs = model(**inputs)
-
-    # Mean pooling with attention mask
     token_embeddings = outputs.last_hidden_state
     attention_mask = inputs["attention_mask"].unsqueeze(-1)
     embedding = (token_embeddings * attention_mask).sum(dim=1) / attention_mask.sum(dim=1)
@@ -56,7 +54,37 @@ def embed_query():
   except Exception as e:
     return jsonify({'error': str(e)}), 500
 
+@app.route('/generate', methods=['POST'])
+def generate_answer():
+  data = request.get_json()
+  query = data.get('query', '')
+  context_items = data.get('context', [])
+
+  if not query:
+    return jsonify({'error': 'No query provided'}), 400
+
+  if not context_items:
+    return jsonify({'error': 'No context provided'}), 400
+
+  try:
+    context_text = "\n\n".join([
+      f"[{i+1}] {item['label']}: {item['text']}"
+      for i, item in enumerate(context_items)
+    ])
+
+    prompt = f"당신은 타이포그래피 전문가입니다. 아래의 참고 자료를 바탕으로 사용자의 질문에 답변해주세요.\n\n참고 자료:\n{context_text}\n\n질문: {query}\n\n답변 (참고 자료를 기반으로 명확하고 간결하게 답변해주세요):"
+
+    response = ollama.chat(
+      model='exaone3.5:7.8b',
+      messages=[{'role': 'user', 'content': prompt}]
+    )
+
+    answer = response['message']['content']
+    return jsonify({'answer': answer})
+
+  except Exception as e:
+    return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
   load_model()
-  app.run(host='0.0.0.0', port = 8000, debug=True)
-
+  app.run(host='0.0.0.0', port=8000, debug=True)

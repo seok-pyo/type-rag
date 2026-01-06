@@ -58,7 +58,7 @@ def create_node_text(node):
   parts = []
 
   if node.get('label'):
-    parts.append(f"Label: {node['label']}는 다음 의미이다.")
+    parts.append(f"Label: {node['label']}")
   if node.get('subtitle_kr'):
     parts.append(f"한글: {node['subtitle_kr']}")
   if node.get('subtitle_hanja'):
